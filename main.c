@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -26,6 +27,8 @@ mSpiCfgS init_config = {0};
 const uint8_t util_bars[COL_SIZE] = {
     0x00, 0x40, 0x60, 0x70, 0x78, 0x7c, 0x7e, 0x7f,
 };
+
+uint8_t get_util_bar(uint8_t idx) { return util_bars[idx]; }
 
 uint8_t vram[NUM_GRID][GRID_SIZE] = {0};
 
@@ -195,31 +198,54 @@ bool vfd_display_string(uint8_t idx, const char* str) {
 // workloads
 // -----------------------
 
+void set_grid_bar(uint8_t bar_idx, uint8_t bar_total_num, uint8_t grid_start_idx, uint8_t grid_total_num, uint8_t util_idx) {
+    static uint8_t bar_distribute[GRID_SIZE + 1][GRID_SIZE] = {
+        {-1, -1, -1, -1, -1}, {0, 0, 0, 0, 0},  {0, 0, -1, 1, 1},
+        {0, -1, 1, -1, 2},    {0, 1, 2, 3, -1}, {0, 1, 2, 3, 4},
+    };
+
+    uint8_t bar_per_grid = bar_total_num / grid_total_num;
+    if (bar_per_grid > GRID_SIZE) {
+        bar_per_grid = GRID_SIZE;
+    }
+
+    uint8_t grid_idx = bar_idx / bar_per_grid + grid_start_idx;
+    uint8_t sub_idx = bar_idx % bar_per_grid;
+
+    for (uint8_t i = 0; i < GRID_SIZE; i++) {
+        uint8_t idx = bar_distribute[bar_per_grid][i];
+        if (idx == (uint8_t)-1) {
+            vram[grid_idx][i] = get_util_bar(0);
+        } else if (idx == sub_idx) {
+            vram[grid_idx][i] = get_util_bar(util_idx);
+        }
+    }
+    return;
+}
+
 void debug_show_util_bars(void) {
-    uint8_t* fvram = flatten_vram();
+    // uint8_t* fvram = flatten_vram();
+
+    const uint8_t total_bars = 2*GRID_SIZE;
 
     static bool initialized = false;
-    static uint8_t bar_idx[NUM_COL] = {0};
+    static uint8_t bar_idx[2*GRID_SIZE] = {0};
     if (!initialized) {
-        for (int i = 0; i < NUM_COL; i++) {
+        for (int i = 0; i < total_bars; i++) {
             bar_idx[i] = rand() % COL_SIZE;
         }
         initialized = true;
     }
 
-    for (int i = 0; i < NUM_COL; i++) {
-        fvram[i] = util_bars[bar_idx[i]];
-    }
-
     uint8_t max_idx = 2 * (COL_SIZE - 1);
-    for (int i = 0; i < NUM_COL; i++) {
+    for (int i = 0; i < total_bars; i++) {
         uint8_t idx = bar_idx[i];
         idx = (idx + 1) % max_idx;
         bar_idx[i] = idx;
         if (idx > COL_SIZE - 1) {
-            fvram[i] = util_bars[max_idx - idx];
+            set_grid_bar(i, total_bars, 1, 4, max_idx - idx);
         } else {
-            fvram[i] = util_bars[idx];
+            set_grid_bar(i, total_bars, 1, 4, idx);
         }
     }
     vfd_update_all_vram();
@@ -265,7 +291,7 @@ int main() {
     sleep(1);
 
     init_worklist();
-    add_to_worklist(&debug_show_util_bars, 20, 10, 500);
+    add_to_worklist(&debug_show_util_bars, 20, 20, 200);
 
     main_loop();
 
