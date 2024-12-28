@@ -198,7 +198,9 @@ bool vfd_display_string(uint8_t idx, const char* str) {
 // workloads
 // -----------------------
 
-void set_grid_bar(uint8_t bar_idx, uint8_t bar_total_num, uint8_t grid_start_idx, uint8_t grid_total_num, uint8_t util_idx) {
+void set_grid_bar(uint8_t bar_idx, uint8_t bar_total_num,
+                  uint8_t grid_start_idx, uint8_t grid_total_num,
+                  uint8_t util_idx) {
     static uint8_t bar_distribute[GRID_SIZE + 1][GRID_SIZE] = {
         {-1, -1, -1, -1, -1}, {0, 0, 0, 0, 0},  {0, 0, -1, 1, 1},
         {0, -1, 1, -1, 2},    {0, 1, 2, 3, -1}, {0, 1, 2, 3, 4},
@@ -224,12 +226,10 @@ void set_grid_bar(uint8_t bar_idx, uint8_t bar_total_num, uint8_t grid_start_idx
 }
 
 void debug_show_util_bars(void) {
-    // uint8_t* fvram = flatten_vram();
-
-    const uint8_t total_bars = 2*GRID_SIZE;
+    const uint8_t total_bars = 2 * NUM_GRID;
 
     static bool initialized = false;
-    static uint8_t bar_idx[2*GRID_SIZE] = {0};
+    static uint8_t bar_idx[2 * NUM_GRID] = {0};
     if (!initialized) {
         for (int i = 0; i < total_bars; i++) {
             bar_idx[i] = rand() % COL_SIZE;
@@ -243,14 +243,29 @@ void debug_show_util_bars(void) {
         idx = (idx + 1) % max_idx;
         bar_idx[i] = idx;
         if (idx > COL_SIZE - 1) {
-            set_grid_bar(i, total_bars, 1, 4, max_idx - idx);
+            set_grid_bar(i, total_bars, 0, 8, max_idx - idx);
         } else {
-            set_grid_bar(i, total_bars, 1, 4, idx);
+            set_grid_bar(i, total_bars, 0, 8, idx);
         }
     }
     vfd_update_all_vram();
     vfd_display_all_vram();
 }
+
+void debug_clean_display(void) {
+    vfd_display_string(0, "        ");
+}
+
+void debug_show_damn(void) {
+    static uint8_t flag = 1;
+    if (flag) {
+        vfd_display_string(1, "Damn~!");
+    } else {
+        debug_clean_display();
+    }
+    flag = !flag;
+}
+
 
 // -----------------------
 // main work loop
@@ -291,7 +306,10 @@ int main() {
     sleep(1);
 
     init_worklist();
-    add_to_worklist(&debug_show_util_bars, 20, 20, 200);
+    add_to_worklist(&debug_show_util_bars, 20, 20, 0);
+    add_to_worklist(&debug_clean_display, 1, 0, 200);
+    add_to_worklist(&debug_show_damn, 11, 100, 0);
+    add_to_worklist(&debug_clean_display, 1, 0, 200);
 
     main_loop();
 
