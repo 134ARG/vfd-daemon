@@ -29,7 +29,7 @@ const uint8_t util_bars[COL_SIZE] = {
 
 uint8_t vram[NUM_GRID][GRID_SIZE] = {0};
 
-uint8_t *flatten_vram(void) { return (uint8_t *)vram; }
+uint8_t* flatten_vram(void) { return (uint8_t*)vram; }
 
 int usb_fd = 0;
 
@@ -40,29 +40,29 @@ int usb_fd = 0;
 typedef void(workload_func)(void);
 
 typedef struct worklist {
-    workload_func *func_ptr;
+    workload_func* func_ptr;
     uint32_t repeat;
     uint32_t inter_delay_ms;
     uint32_t post_delay_ms;
-    struct worklist *next;
+    struct worklist* next;
 } worklist;
 
-worklist *list_head = NULL;
+worklist* list_head = NULL;
 
 void init_worklist(void) {
     list_head = calloc(sizeof(worklist), 1);
     list_head->next = list_head;
 }
 
-worklist *add_to_worklist(workload_func *func, uint32_t repeat,
+worklist* add_to_worklist(workload_func* func, uint32_t repeat,
                           uint32_t inter_delay_ms, uint32_t post_delay_ms) {
-    worklist *new_entry = calloc(sizeof(worklist), 1);
+    worklist* new_entry = calloc(sizeof(worklist), 1);
     new_entry->func_ptr = func;
     new_entry->repeat = repeat;
     new_entry->inter_delay_ms = inter_delay_ms;
     new_entry->post_delay_ms = post_delay_ms;
     new_entry->next = list_head;
-    worklist *current = list_head;
+    worklist* current = list_head;
     while (current->next != list_head) {
         current = current->next;
     }
@@ -71,9 +71,9 @@ worklist *add_to_worklist(workload_func *func, uint32_t repeat,
 }
 
 void free_worklist(void) {
-    worklist *current = list_head->next;
+    worklist* current = list_head->next;
     while (current != list_head) {
-        worklist *next = current->next;
+        worklist* next = current->next;
         free(current);
         current = next;
     }
@@ -114,7 +114,7 @@ void init_spi_interface(void) {
     fprintf(stderr, "SPI Init: success.\n");
 }
 
-bool spi_write(int len, uint8_t *buffer) {
+bool spi_write(int len, uint8_t* buffer) {
     // fprintf(stderr, "DEBUG: SPI write: write %d bytes\n", len);
     if (!CH347SPI_Write(usb_fd, false, 0x80, len, 1, buffer)) {
         fprintf(stderr, "SPI write: failed!\n");
@@ -127,7 +127,7 @@ bool spi_write(int len, uint8_t *buffer) {
 // vfd low level
 // -----------------------
 
-bool vfd_write_dc(uint8_t begin_idx, const uint8_t *addrs, uint8_t len) {
+bool vfd_write_dc(uint8_t begin_idx, const uint8_t* addrs, uint8_t len) {
     if (begin_idx > MAX_IDX) {
         begin_idx = MAX_IDX;
     }
@@ -137,7 +137,7 @@ bool vfd_write_dc(uint8_t begin_idx, const uint8_t *addrs, uint8_t len) {
     }
 
     len += 1; // for the command and start address
-    uint8_t *buffer = calloc(len, 1);
+    uint8_t* buffer = calloc(len, 1);
     buffer[0] = DC_ADDR_START + begin_idx;
     for (int i = 1; i < len; i++) {
         buffer[i] = addrs[i - 1];
@@ -148,7 +148,7 @@ bool vfd_write_dc(uint8_t begin_idx, const uint8_t *addrs, uint8_t len) {
     return ret;
 }
 
-bool vfd_direct_write_vram(uint8_t begin_idx, uint8_t *ram_grid,
+bool vfd_direct_write_vram(uint8_t begin_idx, uint8_t* ram_grid,
                            uint8_t num_grid) {
     if (begin_idx > MAX_IDX) {
         begin_idx = MAX_IDX;
@@ -159,7 +159,7 @@ bool vfd_direct_write_vram(uint8_t begin_idx, uint8_t *ram_grid,
     }
 
     int len = GRID_SIZE * num_grid + 1; // for the command and start address
-    uint8_t *buffer = calloc(len, 1);
+    uint8_t* buffer = calloc(len, 1);
     buffer[0] = CG_ADDR_START + begin_idx;
     for (int i = 1; i < len; i++) {
         buffer[i] = ram_grid[i - 1];
@@ -196,10 +196,10 @@ bool vfd_display_string(uint8_t idx, const char* str) {
 // -----------------------
 
 void debug_show_util_bars(void) {
-    uint8_t *fvram = flatten_vram();
+    uint8_t* fvram = flatten_vram();
 
-    static uint8_t bar_idx[NUM_COL] = {0};
     static bool initialized = false;
+    static uint8_t bar_idx[NUM_COL] = {0};
     if (!initialized) {
         for (int i = 0; i < NUM_COL; i++) {
             bar_idx[i] = rand() % COL_SIZE;
@@ -233,7 +233,7 @@ void debug_show_util_bars(void) {
 const uint32_t duty_ns = 50e3;
 
 void main_loop(void) {
-    worklist *current = list_head;
+    worklist* current = list_head;
     uint32_t repeat = current->repeat;
     while (true) {
         if (!current->func_ptr || !repeat) {
