@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -185,6 +186,11 @@ bool vfd_display_all_vram(void) {
     return vfd_write_dc(0, (uint8_t[]){0, 1, 2, 3, 4, 5, 6, 7}, 8);
 }
 
+bool vfd_display_string(uint8_t idx, const char* str) {
+    size_t len = strlen(str);
+    return vfd_write_dc(idx, (uint8_t*)str, len);
+}
+
 // -----------------------
 // workloads
 // -----------------------
@@ -254,7 +260,7 @@ int main() {
     spi_write(sizeof(lightness), lightness);
     spi_write(sizeof(set00), set00);
     spi_write(sizeof(show), show);
-    vfd_write_dc(0, "Init....", 8);
+    vfd_display_string(0, "Init....");
 
     sleep(1);
 
