@@ -371,6 +371,10 @@ typedef struct {
     double cpu_util;
     double ram_util;
     double gpu_util;
+    double cpu_temp;
+    double gpu_temp;
+    double net_rx_bytes;
+    double net_tx_bytes;
     time_t last_update;
     pthread_mutex_t lock;
     bool connected;
@@ -407,11 +411,21 @@ static void parse_metrics_json(const char* json) {
     const char* cpu = json_find_object(json, "cpu");
     const char* ram = json_find_object(json, "ram");
     const char* gpu = json_find_object(json, "gpu");
+    const char* temp = json_find_object(json, "temp");
+    const char* net = json_find_object(json, "net");
 
     pthread_mutex_lock(&remote_metrics.lock);
     if (cpu) remote_metrics.cpu_util = json_get_number(cpu, "util");
     if (ram) remote_metrics.ram_util = json_get_number(ram, "util");
     if (gpu) remote_metrics.gpu_util = json_get_number(gpu, "util");
+    if (temp) {
+        remote_metrics.cpu_temp = json_get_number(temp, "cpu");
+        remote_metrics.gpu_temp = json_get_number(temp, "gpu");
+    }
+    if (net) {
+        remote_metrics.net_rx_bytes = json_get_number(net, "rx_bytes");
+        remote_metrics.net_tx_bytes = json_get_number(net, "tx_bytes");
+    }
     remote_metrics.last_update = time(NULL);
     remote_metrics.connected = true;
     pthread_mutex_unlock(&remote_metrics.lock);
@@ -519,6 +533,24 @@ static void start_remote_reader(int port) {
 }
 
 // Get remote metrics snapshot (thread-safe)
+typedef struct {
+    double cpu_util, ram_util, gpu_util;
+    double cpu_temp, gpu_temp;
+    double net_rx_bytes, net_tx_bytes;
+} metrics_snapshot_t;
+
+static void get_remote_metrics_full(metrics_snapshot_t* out) {
+    pthread_mutex_lock(&remote_metrics.lock);
+    out->cpu_util = remote_metrics.cpu_util;
+    out->ram_util = remote_metrics.ram_util;
+    out->gpu_util = remote_metrics.gpu_util;
+    out->cpu_temp = remote_metrics.cpu_temp;
+    out->gpu_temp = remote_metrics.gpu_temp;
+    out->net_rx_bytes = remote_metrics.net_rx_bytes;
+    out->net_tx_bytes = remote_metrics.net_tx_bytes;
+    pthread_mutex_unlock(&remote_metrics.lock);
+}
+
 static void get_remote_metrics(double* cpu, double* ram, double* gpu) {
     pthread_mutex_lock(&remote_metrics.lock);
     *cpu = remote_metrics.cpu_util;
@@ -648,6 +680,12 @@ static double calc_cpu_util(cpu_stat_t* prev, cpu_stat_t* cur) {
 // Partial fill: index 0..7 = how many rows lit from bottom
 static const uint8_t partial_col[8] = {
     0x00, 0x01, 0x03, 0x07, 0x0f, 0x1f, 0x3f, 0x7f,
+};
+
+// Partial fill growing from bottom of display (bit 6) upward
+// bit 6 = bottom row on screen, bit 0 = top row
+static const uint8_t partial_col_up[8] = {
+    0x00, 0x40, 0x60, 0x70, 0x78, 0x7c, 0x7e, 0x7f,
 };
 
 // Render bar into vram grids 3-7
@@ -1022,8 +1060,70 @@ static bool show_connection_wait(void) {
 }
 
 // -----------------------
-// Theme 3 remote: Triple stacked bars from remote metrics
+// Theme 3 remote: Triple stacked bars + vertical metrics
 // -----------------------
+// Layout: [C][R][G][vert_grid3][hbar4][hbar5][hbar6][hbar7]
+//
+// Grid 3 (vertical bars, 5 columns):
+//   col 0: CPU temp (0-100°C → 0-7 rows, bottom-up)
+//   col 1: GPU junction temp (same)
+//   col 2: blank separator
+//   col 3: Net RX (log scale)
+//   col 4: Net TX (log scale)
+//
+// Grids 4-7: horizontal stacked bars (4 grids × 5 cols = 20 columns)
+//   CPU: bits 5-6 (2 rows × 20 cols = 40 steps)
+//   RAM: bits 2-3 (2 rows × 20 cols = 40 steps)
+//   GPU: bit 0 (1 row × 20 cols = 20 steps)
+
+#define HBAR_START_GRID 4
+#define HBAR_NUM_GRIDS 4
+#define HBAR_TOTAL_COLS (HBAR_NUM_GRIDS * GRID_SIZE) // 20
+#define VERT_GRID 3
+
+// Render a 2-row horizontal bar into grids 4-7
+static void render_2row_hbar(int level, uint8_t full_mask,
+                             uint8_t partial_mask) {
+    int fill_cols = level / 2;
+    int frac = level % 2;
+
+    for (int i = 0; i < fill_cols && i < HBAR_TOTAL_COLS; i++) {
+        int col_idx = (HBAR_TOTAL_COLS - 1) - i;
+        int g = HBAR_START_GRID + col_idx / GRID_SIZE;
+        int c = col_idx % GRID_SIZE;
+        vram[g][c] |= full_mask;
+    }
+
+    if (fill_cols < HBAR_TOTAL_COLS && frac > 0) {
+        int col_idx = (HBAR_TOTAL_COLS - 1) - fill_cols;
+        int g = HBAR_START_GRID + col_idx / GRID_SIZE;
+        int c = col_idx % GRID_SIZE;
+        vram[g][c] |= partial_mask;
+    }
+}
+
+// Render a 1-row horizontal bar into grids 4-7
+static void render_1row_hbar(int level, uint8_t bit_mask) {
+    for (int i = 0; i < level && i < HBAR_TOTAL_COLS; i++) {
+        int col_idx = (HBAR_TOTAL_COLS - 1) - i;
+        int g = HBAR_START_GRID + col_idx / GRID_SIZE;
+        int c = col_idx % GRID_SIZE;
+        vram[g][c] |= bit_mask;
+    }
+}
+
+// Map network rate (bytes/sec) to 0-7 using log scale
+// 0=0, 1≈10KB/s, 2≈100KB/s, 3≈1MB/s, 4≈5MB/s, 5≈25MB/s, 6≈100MB/s, 7≈100MB/s+
+static int net_rate_to_level(double bytes_per_sec) {
+    if (bytes_per_sec < 1000) return 0;           // < 1 KB/s
+    if (bytes_per_sec < 10000) return 1;           // < 10 KB/s
+    if (bytes_per_sec < 100000) return 2;          // < 100 KB/s
+    if (bytes_per_sec < 1000000) return 3;         // < 1 MB/s
+    if (bytes_per_sec < 5000000) return 4;         // < 5 MB/s
+    if (bytes_per_sec < 25000000) return 5;        // < 25 MB/s
+    if (bytes_per_sec < 100000000) return 6;       // < 100 MB/s
+    return 7;                                       // >= 100 MB/s
+}
 
 static float rtri_cpu_level = 0.0f;
 static float rtri_ram_level = 0.0f;
@@ -1031,33 +1131,46 @@ static float rtri_gpu_level = 0.0f;
 
 void remote_triple_bar_monitor(void) {
     static bool first = true;
+    static double prev_rx = 0, prev_tx = 0;
+    static struct timespec prev_ts = {0};
 
     if (show_connection_wait()) {
-        first = true; // reset so we redraw labels on reconnect
+        first = true;
         return;
     }
 
     if (first) {
         first = false;
-        for (int g = BAR_START_GRID; g < BAR_START_GRID + BAR_NUM_GRIDS; g++)
+        for (int g = VERT_GRID; g < HBAR_START_GRID + HBAR_NUM_GRIDS; g++)
             memset(vram[g], 0, GRID_SIZE);
         vfd_update_all_vram();
         vfd_write_dc(0, (uint8_t[]){'C', 'R', 'G', 3, 4, 5, 6, 7}, 8);
         uint8_t show[] = {0xe8};
         spi_write(sizeof(show), show);
+
+        // Prime net counters
+        metrics_snapshot_t snap;
+        get_remote_metrics_full(&snap);
+        prev_rx = snap.net_rx_bytes;
+        prev_tx = snap.net_tx_bytes;
+        clock_gettime(CLOCK_MONOTONIC, &prev_ts);
         return;
     }
 
-    double cpu_pct, ram_pct, gpu_pct;
-    get_remote_metrics(&cpu_pct, &ram_pct, &gpu_pct);
+    metrics_snapshot_t snap;
+    get_remote_metrics_full(&snap);
 
+    double cpu_pct = snap.cpu_util;
+    double ram_pct = snap.ram_util;
+    double gpu_pct = snap.gpu_util;
     if (cpu_pct > 100.0) cpu_pct = 100.0;
     if (ram_pct > 100.0) ram_pct = 100.0;
     if (gpu_pct > 100.0) gpu_pct = 100.0;
 
-    float cpu_target = (float)(cpu_pct / 100.0 * 50);
-    float ram_target = (float)(ram_pct / 100.0 * 50);
-    float gpu_target = (float)(gpu_pct / 100.0 * 25);
+    // Horizontal bar targets: 40 steps for 2-row, 20 for 1-row
+    float cpu_target = (float)(cpu_pct / 100.0 * 40);
+    float ram_target = (float)(ram_pct / 100.0 * 40);
+    float gpu_target = (float)(gpu_pct / 100.0 * 20);
 
     float d;
     d = cpu_target - rtri_cpu_level;
@@ -1068,18 +1181,64 @@ void remote_triple_bar_monitor(void) {
     rtri_gpu_level += (d > 1.0f || d < -1.0f) ? d * 0.3f : d;
 
     if (rtri_cpu_level < 0) rtri_cpu_level = 0;
-    if (rtri_cpu_level > 50) rtri_cpu_level = 50;
+    if (rtri_cpu_level > 40) rtri_cpu_level = 40;
     if (rtri_ram_level < 0) rtri_ram_level = 0;
-    if (rtri_ram_level > 50) rtri_ram_level = 50;
+    if (rtri_ram_level > 40) rtri_ram_level = 40;
     if (rtri_gpu_level < 0) rtri_gpu_level = 0;
-    if (rtri_gpu_level > 25) rtri_gpu_level = 25;
+    if (rtri_gpu_level > 20) rtri_gpu_level = 20;
 
-    for (int g = BAR_START_GRID; g < BAR_START_GRID + BAR_NUM_GRIDS; g++)
+    // Clear grids 3-7
+    for (int g = VERT_GRID; g < HBAR_START_GRID + HBAR_NUM_GRIDS; g++)
         memset(vram[g], 0, GRID_SIZE);
 
-    render_2row_bar((int)(rtri_cpu_level + 0.5f), CPU_BITS_FULL, CPU_BIT_PARTIAL);
-    render_2row_bar((int)(rtri_ram_level + 0.5f), RAM_BITS_FULL, RAM_BIT_PARTIAL);
-    render_1row_bar((int)(rtri_gpu_level + 0.5f), GPU_BIT_FULL);
+    // --- Horizontal bars (grids 4-7) ---
+    render_2row_hbar((int)(rtri_cpu_level + 0.5f), CPU_BITS_FULL,
+                     CPU_BIT_PARTIAL);
+    render_2row_hbar((int)(rtri_ram_level + 0.5f), RAM_BITS_FULL,
+                     RAM_BIT_PARTIAL);
+    render_1row_hbar((int)(rtri_gpu_level + 0.5f), GPU_BIT_FULL);
+
+    // --- Vertical bars (grid 3) ---
+    // CPU temp: col 0, 0-100°C → 0-7 rows, bottom-to-top
+    double cpu_temp = snap.cpu_temp;
+    if (cpu_temp > 100) cpu_temp = 100;
+    if (cpu_temp < 0) cpu_temp = 0;
+    int cpu_temp_level = (int)(cpu_temp / 100.0 * 7 + 0.5);
+    vram[VERT_GRID][0] = partial_col_up[cpu_temp_level];
+
+    // GPU junction temp: col 1
+    double gpu_temp = snap.gpu_temp;
+    if (gpu_temp > 100) gpu_temp = 100;
+    if (gpu_temp < 0) gpu_temp = 0;
+    int gpu_temp_level = (int)(gpu_temp / 100.0 * 7 + 0.5);
+    vram[VERT_GRID][1] = partial_col_up[gpu_temp_level];
+
+    // Col 2: blank separator (already 0)
+
+    // Net RX/TX rate: only recompute when counters change (agent pushes ~4Hz)
+    static double rx_rate_smooth = 0, tx_rate_smooth = 0;
+    struct timespec now_ts;
+    clock_gettime(CLOCK_MONOTONIC, &now_ts);
+    double dt = (now_ts.tv_sec - prev_ts.tv_sec) +
+                (now_ts.tv_nsec - prev_ts.tv_nsec) / 1e9;
+
+    // Only update rate when we see new counter values from the agent
+    if (snap.net_rx_bytes != prev_rx || snap.net_tx_bytes != prev_tx) {
+        if (dt > 0.05) {
+            double rx_rate = (snap.net_rx_bytes - prev_rx) / dt;
+            double tx_rate = (snap.net_tx_bytes - prev_tx) / dt;
+            if (rx_rate < 0) rx_rate = 0;
+            if (tx_rate < 0) tx_rate = 0;
+            rx_rate_smooth = rx_rate;
+            tx_rate_smooth = tx_rate;
+        }
+        prev_rx = snap.net_rx_bytes;
+        prev_tx = snap.net_tx_bytes;
+        prev_ts = now_ts;
+    }
+
+    vram[VERT_GRID][3] = partial_col_up[net_rate_to_level(rx_rate_smooth)];
+    vram[VERT_GRID][4] = partial_col_up[net_rate_to_level(tx_rate_smooth)];
 
     vfd_update_all_vram();
     vfd_write_dc(0, (uint8_t[]){'C', 'R', 'G', 3, 4, 5, 6, 7}, 8);

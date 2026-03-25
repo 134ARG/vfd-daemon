@@ -21,20 +21,52 @@ def collect_metrics() -> dict:
     gpu_util = 0.0
     gpu_temp = 0
 
+    # Try AMD GPU via sysfs first
     try:
-        import pynvml
-        pynvml.nvmlInit()
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        util = pynvml.nvmlDeviceGetUtilizationRates(handle)
-        gpu_util = float(util.gpu)
-        try:
-            gpu_temp = pynvml.nvmlDeviceGetTemperature(
-                handle, pynvml.NVML_TEMPERATURE_GPU
-            )
-        except Exception:
-            pass
+        import glob
+        amd_paths = glob.glob("/sys/class/drm/card*/device/gpu_busy_percent")
+        if amd_paths:
+            with open(amd_paths[0]) as f:
+                gpu_util = float(f.read().strip())
+        # AMD GPU junction temp (temp2 = junction, temp1 = edge)
+        # Find the hwmon dir first, then look for junction label
+        gpu_junction_temp = 0
+        hwmon_dirs = glob.glob("/sys/class/drm/card*/device/hwmon/hwmon*")
+        for hwmon in hwmon_dirs:
+            # Scan for junction temp by label
+            for i in range(1, 10):
+                label_path = f"{hwmon}/temp{i}_label"
+                input_path = f"{hwmon}/temp{i}_input"
+                try:
+                    with open(label_path) as f:
+                        if f.read().strip() == "junction":
+                            with open(input_path) as f2:
+                                gpu_junction_temp = int(f2.read().strip()) // 1000
+                            break
+                except FileNotFoundError:
+                    continue
+            if gpu_junction_temp:
+                break
+        gpu_temp = gpu_junction_temp
     except Exception:
         pass
+
+    # # Fall back to NVIDIA via pynvml
+    # if gpu_util == 0.0:
+    #     try:
+    #         import pynvml
+    #         pynvml.nvmlInit()
+    #         handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+    #         util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+    #         gpu_util = float(util.gpu)
+    #         try:
+    #             gpu_temp = pynvml.nvmlDeviceGetTemperature(
+    #                 handle, pynvml.NVML_TEMPERATURE_GPU
+    #             )
+    #         except Exception:
+    #             pass
+    #     except Exception:
+    #         pass
 
     cpu_temp = 0
     try:
