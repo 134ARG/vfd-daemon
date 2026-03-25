@@ -2,3 +2,5 @@ vfd-daemon
 cpu-util
 compile_commands.json
 .vscode/
+manuals/
+.cache/
