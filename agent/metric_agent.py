@@ -87,6 +87,18 @@ def collect_metrics() -> dict:
     except Exception:
         uptime_sec = 0
 
+    # Systemd failed units count
+    failed_units = 0
+    try:
+        import subprocess
+        result = subprocess.run(
+            ["systemctl", "--no-legend", "--plain", "--state=failed", "list-units"],
+            capture_output=True, text=True, timeout=2,
+        )
+        failed_units = len([l for l in result.stdout.strip().splitlines() if l.strip()])
+    except Exception:
+        pass
+
     return {
         "ts": int(time.time()),
         "metrics": {
@@ -102,7 +114,7 @@ def collect_metrics() -> dict:
                 "rx_bytes": net.bytes_recv,
                 "tx_bytes": net.bytes_sent,
             },
-            "sys": {"uptime": uptime_sec},
+            "sys": {"uptime": uptime_sec, "failed_units": failed_units},
         },
     }
 

@@ -376,6 +376,7 @@ typedef struct {
     double net_rx_bytes;
     double net_tx_bytes;
     int uptime_sec;
+    int failed_units;
     time_t last_update;
     pthread_mutex_t lock;
     bool connected;
@@ -429,6 +430,7 @@ static void parse_metrics_json(const char* json) {
     }
     const char* sys = json_find_object(json, "sys");
     if (sys) remote_metrics.uptime_sec = (int)json_get_number(sys, "uptime");
+    if (sys) remote_metrics.failed_units = (int)json_get_number(sys, "failed_units");
     remote_metrics.last_update = time(NULL);
     remote_metrics.connected = true;
     pthread_mutex_unlock(&remote_metrics.lock);
@@ -541,6 +543,7 @@ typedef struct {
     double cpu_temp, gpu_temp;
     double net_rx_bytes, net_tx_bytes;
     int uptime_sec;
+    int failed_units;
 } metrics_snapshot_t;
 
 static void get_remote_metrics_full(metrics_snapshot_t* out) {
@@ -553,6 +556,7 @@ static void get_remote_metrics_full(metrics_snapshot_t* out) {
     out->net_rx_bytes = remote_metrics.net_rx_bytes;
     out->net_tx_bytes = remote_metrics.net_tx_bytes;
     out->uptime_sec = remote_metrics.uptime_sec;
+    out->failed_units = remote_metrics.failed_units;
     pthread_mutex_unlock(&remote_metrics.lock);
 }
 
@@ -944,8 +948,8 @@ static double read_gpu_util(void) {
     for (int i = 0; paths[i]; i++) {
         FILE* fp = fopen(paths[i], "r");
         if (!fp) continue;
-        unsigned long load = 0, total = 0;
-        if (fscanf(fp, "%lu@%*lu", &load) == 1) {
+        unsigned long load = 0;
+        if (fscanf(fp, "%lu@", &load) == 1) {
             // Some formats: "load@freq"
             fclose(fp);
             return (double)load;
@@ -1247,15 +1251,17 @@ void remote_triple_bar_monitor(void) {
 
     vfd_update_all_vram();
 
-    // Alternate grids 0-2 between "CRG" and uptime every 3 seconds (30 frames)
+    // Alternate grids 0-2: status (NRM/ALR) ↔ uptime, every 3 seconds
     static int label_frame = 0;
     label_frame++;
     bool show_uptime = (label_frame / 30) % 2;
 
+    bool alert = snap.failed_units > 0;
+
     if (show_uptime) {
         int hours = snap.uptime_sec / 3600;
         if (hours > 999) hours = 999;
-        char uptxt[4];
+        char uptxt[8];
         if (hours < 10) {
             snprintf(uptxt, sizeof(uptxt), "0%dH", hours);       // "0xH"
         } else if (hours < 100) {
@@ -1265,8 +1271,16 @@ void remote_triple_bar_monitor(void) {
         }
         vfd_write_dc(0, (uint8_t[]){uptxt[0], uptxt[1], uptxt[2],
                                      3, 4, 5, 6, 7}, 8);
+    } else if (alert) {
+        // Flash ALR at 0.4s/0.4s (4 frames on, 4 frames off at 10fps)
+        bool alr_visible = (label_frame % 8) < 4;
+        if (alr_visible) {
+            vfd_write_dc(0, (uint8_t[]){'A', 'L', 'R', 3, 4, 5, 6, 7}, 8);
+        } else {
+            vfd_write_dc(0, (uint8_t[]){' ', ' ', ' ', 3, 4, 5, 6, 7}, 8);
+        }
     } else {
-        vfd_write_dc(0, (uint8_t[]){'C', 'R', 'G', 3, 4, 5, 6, 7}, 8);
+        vfd_write_dc(0, (uint8_t[]){'N', 'R', 'M', 3, 4, 5, 6, 7}, 8);
     }
 
     uint8_t show[] = {0xe8};
