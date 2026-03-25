@@ -1,3 +1,4 @@
+#include <dirent.h>
 #include <fcntl.h>
 #include <getopt.h>
 #include <netdb.h>
@@ -72,6 +73,50 @@ static spi_backend_t* spi = NULL;
 
 static int ch347_fd = -1;
 static mSpiCfgS ch347_config = {0};
+
+// Auto-detect CH347T hidraw device by scanning sysfs for VID:PID 1a86:55dc
+// The CH347T exposes two HID interfaces: input0 (UART) and input1 (SPI+I2C).
+// We want input1.
+static char* ch347_auto_detect(void) {
+    DIR* d = opendir("/sys/class/hidraw");
+    if (!d) return NULL;
+
+    struct dirent* ent;
+    char* best = NULL;
+    while ((ent = readdir(d)) != NULL) {
+        if (strncmp(ent->d_name, "hidraw", 6) != 0) continue;
+
+        char uevent_path[512];
+        snprintf(uevent_path, sizeof(uevent_path),
+                 "/sys/class/hidraw/%s/device/uevent", ent->d_name);
+
+        FILE* fp = fopen(uevent_path, "r");
+        if (!fp) continue;
+
+        char line[256];
+        bool vid_pid_match = false;
+        bool is_spi_iface = false;
+        while (fgets(line, sizeof(line), fp)) {
+            if (strstr(line, "1A86") && strstr(line, "55DC"))
+                vid_pid_match = true;
+            // input1 = SPI+I2C interface
+            if (strstr(line, "HID_PHYS=") && strstr(line, "/input1"))
+                is_spi_iface = true;
+        }
+        fclose(fp);
+
+        if (vid_pid_match && is_spi_iface) {
+            best = malloc(64);
+            snprintf(best, 64, "/dev/%s", ent->d_name);
+            break;
+        }
+    }
+    closedir(d);
+
+    if (best)
+        fprintf(stderr, "CH347: auto-detected %s\n", best);
+    return best;
+}
 
 static bool ch347_init(const char* device_path) {
     ch347_config.iMode = 0x03;
@@ -947,6 +992,36 @@ void triple_bar_monitor(void) {
 }
 
 // -----------------------
+// Connection wait indicator for remote modes
+// -----------------------
+
+static bool is_remote_connected(void) {
+    pthread_mutex_lock(&remote_metrics.lock);
+    bool c = remote_metrics.connected;
+    pthread_mutex_unlock(&remote_metrics.lock);
+    return c;
+}
+
+// Returns true if we should skip the normal render (showing wait screen instead)
+static bool show_connection_wait(void) {
+    if (is_remote_connected()) return false;
+
+    // Asymmetric flash: 800ms on, 200ms off (8 frames on, 2 frames off at 10fps)
+    static int frame = 0;
+    frame++;
+    bool visible = (frame % 10) < 8;
+
+    if (visible) {
+        vfd_display_string(0, "CON WAIT");
+    } else {
+        vfd_display_string(0, "        ");
+    }
+    uint8_t show[] = {0xe8};
+    spi_write(sizeof(show), show);
+    return true;
+}
+
+// -----------------------
 // Theme 3 remote: Triple stacked bars from remote metrics
 // -----------------------
 
@@ -956,6 +1031,11 @@ static float rtri_gpu_level = 0.0f;
 
 void remote_triple_bar_monitor(void) {
     static bool first = true;
+
+    if (show_connection_wait()) {
+        first = true; // reset so we redraw labels on reconnect
+        return;
+    }
 
     if (first) {
         first = false;
@@ -1016,6 +1096,11 @@ static float remote_displayed_level = 0.0f;
 
 void remote_cpu_monitor(void) {
     static bool first = true;
+
+    if (show_connection_wait()) {
+        first = true;
+        return;
+    }
 
     if (first) {
         first = false;
@@ -1143,8 +1228,16 @@ int main(int argc, char* argv[]) {
 
     // Set defaults if no device path given
     if (!device_path) {
-        device_path =
-            (mode == SPI_MODE_CH347) ? "/dev/hidraw6" : "/dev/spidev0.0";
+        if (mode == SPI_MODE_CH347) {
+            device_path = ch347_auto_detect();
+            if (!device_path) {
+                fprintf(stderr, "CH347: auto-detect failed, "
+                        "specify path with -d\n");
+                return 1;
+            }
+        } else {
+            device_path = "/dev/spidev0.0";
+        }
     }
 
     // Select backend
