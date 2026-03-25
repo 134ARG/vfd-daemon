@@ -375,6 +375,7 @@ typedef struct {
     double gpu_temp;
     double net_rx_bytes;
     double net_tx_bytes;
+    int uptime_sec;
     time_t last_update;
     pthread_mutex_t lock;
     bool connected;
@@ -426,6 +427,8 @@ static void parse_metrics_json(const char* json) {
         remote_metrics.net_rx_bytes = json_get_number(net, "rx_bytes");
         remote_metrics.net_tx_bytes = json_get_number(net, "tx_bytes");
     }
+    const char* sys = json_find_object(json, "sys");
+    if (sys) remote_metrics.uptime_sec = (int)json_get_number(sys, "uptime");
     remote_metrics.last_update = time(NULL);
     remote_metrics.connected = true;
     pthread_mutex_unlock(&remote_metrics.lock);
@@ -537,6 +540,7 @@ typedef struct {
     double cpu_util, ram_util, gpu_util;
     double cpu_temp, gpu_temp;
     double net_rx_bytes, net_tx_bytes;
+    int uptime_sec;
 } metrics_snapshot_t;
 
 static void get_remote_metrics_full(metrics_snapshot_t* out) {
@@ -548,6 +552,7 @@ static void get_remote_metrics_full(metrics_snapshot_t* out) {
     out->gpu_temp = remote_metrics.gpu_temp;
     out->net_rx_bytes = remote_metrics.net_rx_bytes;
     out->net_tx_bytes = remote_metrics.net_tx_bytes;
+    out->uptime_sec = remote_metrics.uptime_sec;
     pthread_mutex_unlock(&remote_metrics.lock);
 }
 
@@ -1241,7 +1246,28 @@ void remote_triple_bar_monitor(void) {
     vram[VERT_GRID][4] = partial_col_up[net_rate_to_level(tx_rate_smooth)];
 
     vfd_update_all_vram();
-    vfd_write_dc(0, (uint8_t[]){'C', 'R', 'G', 3, 4, 5, 6, 7}, 8);
+
+    // Alternate grids 0-2 between "CRG" and uptime every 3 seconds (30 frames)
+    static int label_frame = 0;
+    label_frame++;
+    bool show_uptime = (label_frame / 30) % 2;
+
+    if (show_uptime) {
+        int hours = snap.uptime_sec / 3600;
+        if (hours > 999) hours = 999;
+        char uptxt[4];
+        if (hours < 10) {
+            snprintf(uptxt, sizeof(uptxt), "0%dH", hours);       // "0xH"
+        } else if (hours < 100) {
+            snprintf(uptxt, sizeof(uptxt), "%dH", hours);        // "xxH"
+        } else {
+            snprintf(uptxt, sizeof(uptxt), "%d", hours);         // "xxx"
+        }
+        vfd_write_dc(0, (uint8_t[]){uptxt[0], uptxt[1], uptxt[2],
+                                     3, 4, 5, 6, 7}, 8);
+    } else {
+        vfd_write_dc(0, (uint8_t[]){'C', 'R', 'G', 3, 4, 5, 6, 7}, 8);
+    }
 
     uint8_t show[] = {0xe8};
     spi_write(sizeof(show), show);

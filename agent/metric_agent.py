@@ -80,6 +80,13 @@ def collect_metrics() -> dict:
 
     net = psutil.net_io_counters()
 
+    # System uptime in seconds
+    try:
+        with open("/proc/uptime") as f:
+            uptime_sec = int(float(f.read().split()[0]))
+    except Exception:
+        uptime_sec = 0
+
     return {
         "ts": int(time.time()),
         "metrics": {
@@ -95,6 +102,7 @@ def collect_metrics() -> dict:
                 "rx_bytes": net.bytes_recv,
                 "tx_bytes": net.bytes_sent,
             },
+            "sys": {"uptime": uptime_sec},
         },
     }
 
