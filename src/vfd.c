@@ -22,7 +22,7 @@ uint8_t vram[NUM_GRID][GRID_SIZE] = {0};
 uint8_t* flatten_vram(void) { return (uint8_t*)vram; }
 
 // Partial fill: index 0..7 = how many rows lit from bottom
-const uint8_t partial_col[8] = {
+const uint8_t partial_col_down[8] = {
     0x00, 0x01, 0x03, 0x07, 0x0f, 0x1f, 0x3f, 0x7f,
 };
 

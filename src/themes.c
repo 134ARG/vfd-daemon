@@ -52,7 +52,7 @@ static void render_cpu_bar(int fill_cols, int frac_rows) {
         int col_idx = (BAR_TOTAL_COLS - 1) - fill_cols;
         int g = BAR_START_GRID + col_idx / GRID_SIZE;
         int c = col_idx % GRID_SIZE;
-        vram[g][c] = partial_col[frac_rows];
+        vram[g][c] = partial_col_down[frac_rows];
     }
 }
 

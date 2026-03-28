@@ -16,7 +16,7 @@
 
 extern uint8_t vram[NUM_GRID][GRID_SIZE];
 extern const uint8_t util_bars[COL_SIZE];
-extern const uint8_t partial_col[8];
+extern const uint8_t partial_col_down[8];
 extern const uint8_t partial_col_up[8];
 
 uint8_t* flatten_vram(void);
