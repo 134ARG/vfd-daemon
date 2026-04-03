@@ -1,0 +1,8 @@
+vfd-daemon (1.0.0-1) unstable; urgency=low
+
+  * Initial release.
+  * CH347 and spidev SPI backends.
+  * SPI write timeout and auto-recovery.
+  * Systemd service with default ch347 mode, theme 3, port 9101.
+
+ -- Unknown <unknown@example.com>  Fri, 03 Apr 2026 00:00:00 +0000

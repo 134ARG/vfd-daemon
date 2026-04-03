@@ -1,0 +1,14 @@
+Source: vfd-daemon
+Section: utils
+Priority: optional
+Maintainer: 134arg <xen134@outlook.com>
+Build-Depends: debhelper-compat (= 13), gcc
+Standards-Version: 4.6.0
+
+Package: vfd-daemon
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: VFD display daemon for CH347/spidev SPI backends
+ Drives an 8-digit VFD screen over SPI using a CH347T USB bridge
+ or native spidev. Receives system metrics from a remote agent
+ over TCP and renders them as bar graphs.

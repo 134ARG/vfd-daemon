@@ -16,4 +16,6 @@ extern spi_backend_t ch347_backend;
 extern spi_backend_t spidev_backend;
 
 bool spi_write(int len, uint8_t* buffer);
+int spi_get_fail_count(void);
 char* ch347_auto_detect(void);
+void ch347_setup_signal(void);

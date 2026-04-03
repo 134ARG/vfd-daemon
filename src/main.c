@@ -95,6 +95,9 @@ int main(int argc, char* argv[]) {
 
     spi = (mode == SPI_MODE_CH347) ? &ch347_backend : &spidev_backend;
 
+    if (mode == SPI_MODE_CH347)
+        ch347_setup_signal();
+
     if (!spi->init(device_path)) {
         return 1;
     }

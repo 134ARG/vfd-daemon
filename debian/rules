@@ -1,0 +1,25 @@
+#!/usr/bin/make -f
+
+DEB_HOST_ARCH ?= $(shell dpkg-architecture -qDEB_HOST_ARCH)
+
+%:
+	dh $@
+
+override_dh_auto_build:
+ifeq ($(DEB_HOST_ARCH),arm64)
+	$(MAKE) arm64
+else
+	$(MAKE) x86
+endif
+
+override_dh_auto_install:
+ifeq ($(DEB_HOST_ARCH),arm64)
+	install -D -m 0755 vfd-daemon-arm64 $(CURDIR)/debian/vfd-daemon/usr/bin/vfd-daemon
+else
+	install -D -m 0755 vfd-daemon-x86 $(CURDIR)/debian/vfd-daemon/usr/bin/vfd-daemon
+endif
+	install -D -m 0644 dist/vfd-daemon.service $(CURDIR)/debian/vfd-daemon/lib/systemd/system/vfd-daemon.service
+	install -D -m 0644 dist/99-ch347.rules $(CURDIR)/debian/vfd-daemon/lib/udev/rules.d/99-ch347.rules
+
+override_dh_auto_clean:
+	$(MAKE) clean

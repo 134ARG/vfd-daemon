@@ -1,0 +1,17 @@
+[Unit]
+Description=VFD Display Daemon (CH347 SPI)
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/vfd-daemon -m ch347 -t 3 -s 9101
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+# Needs access to /dev/hidraw* for CH347
+SupplementaryGroups=plugdev
+
+[Install]
+WantedBy=multi-user.target

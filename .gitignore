@@ -4,3 +4,5 @@ compile_commands.json
 .vscode/
 manuals/
 .cache/
+
+!dist/vfd-daemon.service
