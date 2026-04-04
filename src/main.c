@@ -109,7 +109,7 @@ int main(int argc, char* argv[]) {
 
     init_worklist();
     workload_func* monitor = (theme == 1) ? &cpu_monitor : &triple_bar_monitor;
-    add_to_worklist(monitor, UINT32_MAX, 100, 0);
+    add_to_worklist(monitor, UINT32_MAX, 50, 0);
 
     main_loop();
 

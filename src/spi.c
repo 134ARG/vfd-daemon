@@ -129,7 +129,7 @@ static bool ch347_init(const char* device_path) {
     }
 
     // Set USB timeout before SPI init — may only work with vendor driver
-    if (!CH34xSetTimeout(ch347_fd, 500, 500)) {
+    if (!CH34xSetTimeout(ch347_fd, 50, 50)) {
         fprintf(stderr, "CH347: CH34xSetTimeout not supported "
                 "(HID mode), using thread-based timeout\n");
     }
@@ -161,7 +161,7 @@ static void* ch347_write_worker(void* arg) {
     return NULL;
 }
 
-#define CH347_WRITE_TIMEOUT_MS 500
+#define CH347_WRITE_TIMEOUT_MS 50
 #define CH347_WRITE_RETRIES 3
 
 static bool ch347_stalled = false;
