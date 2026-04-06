@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-VERSION="1.0.0"
+VERSION="1.0.1"
 ARCH="${1:-amd64}"
 PKG="vfd-daemon"
 BUILDDIR="${PKG}_${VERSION}_${ARCH}"
