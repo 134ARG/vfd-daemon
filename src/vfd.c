@@ -19,6 +19,9 @@ uint8_t get_util_bar(uint8_t idx) { return util_bars[idx]; }
 
 uint8_t vram[NUM_GRID][GRID_SIZE] = {0};
 
+static uint8_t vram_shadow[NUM_GRID][GRID_SIZE];
+static bool shadow_init = false;
+
 uint8_t* flatten_vram(void) { return (uint8_t*)vram; }
 
 // Partial fill: index 0..7 = how many rows lit from bottom
@@ -67,15 +70,12 @@ bool vfd_direct_write_vram(uint8_t begin_idx, uint8_t* ram_grid,
         num_grid = NUM_GRID - begin_idx;
     }
 
-    int len = GRID_SIZE * num_grid + 1;
-    uint8_t* buffer = calloc(len, 1);
+    int len = GRID_SIZE * num_grid;
+    uint8_t buffer[GRID_SIZE * NUM_GRID + 10];
     buffer[0] = CG_ADDR_START + begin_idx;
-    for (int i = 1; i < len; i++) {
-        buffer[i] = ram_grid[i - 1];
-    }
+    memcpy(&buffer[1], ram_grid, len);
 
-    bool ret = spi_write(len, buffer);
-    free(buffer);
+    bool ret = spi_write(len + 1, buffer);
     return ret;
 }
 
@@ -84,7 +84,17 @@ bool vfd_direct_write_vram(uint8_t begin_idx, uint8_t* ram_grid,
 // -----------------------
 
 bool vfd_update_all_vram(void) {
-    return vfd_direct_write_vram(0, flatten_vram(), 8);
+    if (shadow_init && memcmp(vram, vram_shadow, sizeof(vram)) == 0) {
+        return true; // Skip SPI entirely
+    }
+
+    bool ret = vfd_direct_write_vram(0, (uint8_t*)vram, 8);
+
+    if (ret) {
+        memcpy(vram_shadow, vram, sizeof(vram));
+        shadow_init = true;
+    }
+    return ret;
 }
 
 bool vfd_display_at(uint8_t idx, uint8_t vram_addr) {
