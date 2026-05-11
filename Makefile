@@ -1,5 +1,8 @@
 SYSROOT := $(HOME)/test-field/cross-compile/sysroot
 CFLAGS  := -O3 -Wall
+VERSION := 1.0.1
+RPM_TOPDIR := $(CURDIR)/.rpmbuild
+RPM_SOURCE := $(RPM_TOPDIR)/SOURCES/vfd-daemon-$(VERSION).tar.gz
 
 SRCS := $(wildcard src/*.c)
 
@@ -14,7 +17,7 @@ ARM64_INC  := -I./lib/aarch64/static
 ARM64_LIB  := -L./lib/aarch64/static -l:libch347.a -lpthread -B$(SYSROOT)/usr/lib/aarch64-linux-gnu
 ARM64_SYSROOT := --sysroot=$(SYSROOT) -isystem $(SYSROOT)/usr/include/aarch64-linux-gnu
 
-.PHONY: all x86 arm64 cpu clean
+.PHONY: all x86 arm64 cpu rpm-agent clean
 
 all: x86 arm64
 
@@ -25,6 +28,13 @@ arm64: vfd-daemon-arm64
 cpu:
 	$(X64_CC) $(CFLAGS) ./cpu_util.c -o cpu-util
 
+rpm-agent: $(RPM_SOURCE)
+	rpmbuild -bb rpm/vfd-agent.spec --define "_topdir $(RPM_TOPDIR)"
+
+$(RPM_SOURCE): README.md agent/metric_agent.py dist/vfd-agent.service dist/vfd-agent.conf rpm/vfd-agent.spec
+	mkdir -p $(RPM_TOPDIR)/SOURCES $(RPM_TOPDIR)/BUILD $(RPM_TOPDIR)/BUILDROOT $(RPM_TOPDIR)/RPMS $(RPM_TOPDIR)/SRPMS
+	tar -czf $(RPM_SOURCE) --transform 's,^,vfd-daemon-$(VERSION)/,' README.md agent dist rpm
+
 vfd-daemon-x86: $(SRCS)
 	$(X64_CC) $(CFLAGS) $(SRCS) -o $@ $(X64_INC) $(X64_LIB)
 
@@ -33,3 +43,4 @@ vfd-daemon-arm64: $(SRCS)
 
 clean:
 	rm -f vfd-daemon-x86 vfd-daemon-arm64 cpu-util
+	rm -rf $(RPM_TOPDIR)

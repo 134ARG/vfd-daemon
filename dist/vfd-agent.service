@@ -1,0 +1,17 @@
+[Unit]
+Description=VFD Metric Agent
+Documentation=man:systemd.service(5)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/vfd-agent/vfd-agent.conf
+ExecStart=/usr/bin/vfd-agent --host ${VFD_HOST} --port ${VFD_PORT} --interval ${VFD_INTERVAL}
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
